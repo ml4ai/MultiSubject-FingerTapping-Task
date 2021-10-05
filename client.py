@@ -1,4 +1,6 @@
-import socket, threading
+import socket
+from select import select
+import threading
 import pygame
 import sys
 import os
@@ -121,3 +123,33 @@ receive_thread.start()
 write_thread = threading.Thread(target=write)                   #sending messages 
 write_thread.start()
 
+
+class Client:
+    def __init__(self, host: str, port: int):
+        self._client_id = -1
+
+        # Establish two-channel connection to server
+        self._from_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._from_server.connect((host, port))
+        self._from_server.setblocking(False)
+
+        self._to_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._to_server.connect((host, port + 1))
+        self._to_server.setblocking(False)
+
+        readable, _, _ = select([self._to_server], [], [self._to_server])
+        if readable:
+            self._client_id = int(readable[0].recv(1024).decode('utf-8'))
+        else:
+            raise RuntimeError("Fail to establish connection with server")
+
+        self._running = True
+
+        print("Connected to server, client ID: " + str(self._client_id))
+
+    def run(self):
+        # Create a thread for sending client input to server
+        control_thread = threading.Thread(target=self._send_input, daemon=True)
+        control_thread.start()
+
+        

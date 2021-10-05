@@ -1,52 +1,286 @@
-import socket, threading                                                #Libraries import
+from os import read
+import socket
+from select import select
+from utils import send
+import pygame
+import sys
+import json
+import threading                                                #Libraries import
 
-host = '127.0.0.1'                                                      #LocalHost
-port = 7978                                                            #Choosing unreserved port
+# host = '127.0.0.1'                                                      #LocalHost
+# port = 7978                                                            #Choosing unreserved port
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)              #socket initialization
-server.bind((host, port))                                               #binding host and port to socket
-server.listen()
+# server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)              #socket initialization
+# server.bind((host, port))                                               #binding host and port to socket
+# server.listen()
 
-clients = []
-nicknames = []
+# clients = []
+# nicknames = []
 
-def broadcast(message, clientt):                                                 #broadcast function declaration
-    for client in clients:
-        if client == clientt:
-            continue
-        else:
-            client.send(message)
-    # for client in clients:
-    #     print(client, type(client))
-    #     client.send(message)
+# def broadcast(message, clientt):                                                 #broadcast function declaration
+#     for client in clients:
+#         if client == clientt:
+#             continue
+#         else:
+#             client.send(message)
+#     # for client in clients:
+#     #     print(client, type(client))
+#     #     client.send(message)
 
-def handle(client):                                         
-    while True:
-        try:                                                            #recieving valid messages from client
-            message = client.recv(1024)
-            broadcast(message, client)
-        except:                                                         #removing clients
-            index = clients.index(client)
-            clients.remove(client)
-            client.close()
-            nickname = nicknames[index]
-            broadcast('{} left!'.format(nickname).encode('ascii'), client)
-            nicknames.remove(nickname)
-            break
+# def handle(client):                                         
+#     while True:
+#         try:                                                            #recieving valid messages from client
+#             message = client.recv(1024)
+#             broadcast(message, client)
+#         except:                                                         #removing clients
+#             index = clients.index(client)
+#             clients.remove(client)
+#             client.close()
+#             nickname = nicknames[index]
+#             broadcast('{} left!'.format(nickname).encode('ascii'), client)
+#             nicknames.remove(nickname)
+#             break
 
-def receive():                                                          #accepting multiple clients
+# def receive():                                                          #accepting multiple clients
     
-    while True:
-        client, address = server.accept()
-        print("Connected with {}".format(str(address)))       
-        client.send('NICKNAME'.encode('ascii'))
-        nickname = client.recv(1024).decode('ascii')
-        nicknames.append(nickname)
-        clients.append(client)
-        print("Nickname is {}".format(nickname))
-        broadcast("{} joined!".format(nickname).encode('ascii'), client)
-        client.send('Connected to server!'.encode('ascii'))
-        thread = threading.Thread(target=handle, args=(client,))
-        thread.start()
+#     while True:
+#         client, address = server.accept()
+#         print("Connected with {}".format(str(address)))       
+#         client.send('NICKNAME'.encode('ascii'))
+#         nickname = client.recv(1024).decode('ascii')
+#         nicknames.append(nickname)
+#         clients.append(client)
+#         print("Nickname is {}".format(nickname))
+#         broadcast("{} joined!".format(nickname).encode('ascii'), client)
+#         client.send('Connected to server!'.encode('ascii'))
+#         thread = threading.Thread(target=handle, args=(client,))
+#         thread.start()
         
-receive()
+# receive()
+
+class Server:
+    def __init__(self, host: str, port: int):
+        self._host = host
+        self._port = port
+
+        self._to_client_connections = []
+        self._from_client_connections = {}
+
+        # Establish connection where clients can get game state update
+        self._to_client_request = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._to_client_request.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Reuse socket
+        self._to_client_request.bind((self._host, self._port))
+        self._to_client_request.setblocking(False)
+
+        # Establish connection where clients send control commands
+        self._from_client_request = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._from_client_request.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Reuse socket
+        self._from_client_request.bind((self._host, self._port + 1))
+        self._from_client_request.setblocking(False)
+
+        self._exit_request = False
+        self._currentID = 0
+
+        self._state = {}
+
+        self._thread_lock = threading.Lock()
+
+        print(f"[NETWORK] ({self._host}, {self._port})")
+
+    def run(self):
+        """
+        Set up threads for handling connections
+        """
+        to_client_request_thread = threading.Thread(target=self._dispatch_to_client_request, daemon=True)
+        to_client_request_thread.start()
+
+        from_client_request_thread = threading.Thread(target=self._dispatch_from_client_request, daemon=True)
+        from_client_request_thread.start()
+
+        from_client_commands_thread = threading.Thread(target=self._from_client_commands, daemon=True)
+        from_client_commands_thread.start()
+
+        to_client_update_state_thread = threading.Thread(target=self._to_client_update_state, daemon=True)
+        to_client_update_state_thread.start()
+
+        server_control_thread = threading.Thread(target=self._server_control, daemon=True)
+        server_control_thread.start()
+
+        # Wait for threads to finish
+        to_client_request_thread.join()
+        from_client_request_thread.join()
+        from_client_commands_thread.join()
+        to_client_update_state_thread.join()
+        server_control_thread.join()
+        
+        # Close server connection
+        self._to_client_request.close()
+        self._from_client_request.close()
+
+    def _dispatch_to_client_request(self):
+        """
+        Dispatch client's connection for receiving game state updates from server
+        """
+        # Listen for client connection
+        self._to_client_request.listen()
+
+        while not self._exit_request:
+            readable, _, _ = select([self._to_client_request], [], [self._to_client_request], 0.1)
+            if readable:
+                client_conn, client_addr = readable[0].accept()
+                client_conn.setblocking(False)
+                self._to_client_connections.append(client_conn)
+                print("Sending replies to [" + client_addr[0] + ", " + str(client_addr[1]) + ']')
+
+    def _dispatch_from_client_request(self):
+        """
+        Establish connection to receive clients' command
+        """
+        # Listen for client connection
+        self._from_client_request.listen()
+
+        while not self._exit_request:
+            readable, _, _ = select([self._from_client_request], [], [self._from_client_request], 0.1)
+
+            if readable:
+                client_conn, client_addr = readable[0].accept()
+                client_conn.setblocking(False)
+
+                _, writable, _ = select([], [client_conn], [client_conn])
+                try:
+                    send(writable[0], self._currentID)
+                except BrokenPipeError:
+                    print("Connection closed")
+                    continue
+
+                self._thread_lock.acquire()
+                self._from_client_connections[client_conn] = self._currentID
+                self._state[self._currentID] = 0
+                self._thread_lock.release()
+
+                print("Receiving commands from [" + str(self._currentID) + ", " + client_addr[0] + ", " + str(client_addr[1]) + ']')
+
+                self._currentID += 1
+    
+    def _to_client_update_state(self):
+        """
+        Update game state then send game state updates to clients
+        """
+        clock = pygame.time.Clock() # Control the rate of sending data to clients
+        while not self._exit_request:
+            data = {}
+            data["message_type"] = "state"
+            data["state"] = self._state
+
+            _, writable, exceptional = select([], self._to_client_connections, self._to_client_connections, 0)
+            for connection in writable:
+                try:
+                    send(connection, data)
+                except:
+                    print("Connection closed")
+                    connection.close()
+                    self._to_client_connections.remove(connection)
+            
+            for connection in exceptional:
+                connection.close()
+                self._to_client_connections.remove(connection)
+            
+            # Limit loop rate to 120 loops per second
+            clock.tick(120)
+
+        while self._to_client_connections:
+            _, writable, exceptional = select([], self._to_client_connections, self._to_client_connections)
+
+            for connection in writable:
+                data = {}
+                data["message_type"] = "command"
+                data["message"] = "CLOSE"
+
+                try:
+                    send(connection, data)
+                except BrokenPipeError:
+                    print("Connection closed")
+
+                connection.close()
+                self._to_client_connections.remove(connection)
+            
+            for connection in exceptional:
+                connection.close()
+                self._to_client_connections.remove(connection)
+            
+            clock.tick(120)
+
+    def _from_client_commands(self):
+        """
+        Handle clients' commands
+        """
+        while not self._exit_request:
+            readable, _, exceptional = select(self._from_client_connections.keys(), [], self._from_client_connections.keys(), 0.2)
+
+            for id in self._states.keys():
+                self._states[id] = 0
+
+            for connection in readable:
+                client_id = self._from_client_connections[connection]
+
+                message = connection.recv(1024)
+
+                if not message:
+                    continue
+
+                try:
+                    command = json.loads(message.decode('utf-8'))
+                except json.decoder.JSONDecodeError as err:
+                    print(err)
+                    continue
+
+                if command == "TAP":
+                    self._state[client_id] = 1
+                elif command == "CLOSE":
+                    connection.close()
+                    self._thread_lock.acquire()
+                    del self._from_client_connections[connection]
+                    del self._state[client_id]
+                    self._thread_lock.release()
+
+            for connection in exceptional:
+                connection.close()
+                self._thread_lock.acquire()
+                del self._from_client_connections[connection]
+                del self._positions[client_id]
+                del self._paddles[client_id]
+                self._thread_lock.release()
+
+        for connection in self._from_client_connections:
+            connection.close()
+
+    def _server_control(self):
+        """
+        Control the server 
+        """
+        while not self._exit_request:
+            command = input()
+            
+            if command == "h" or command == "help":
+                print("-----")
+                print("exit: Close the server")
+                print("h or help: List available commands")
+                print("-----")
+
+            elif command == "exit":
+                self._exit_request = True
+
+            else:
+                print("Unknown command")
+
+
+if __name__ == "__main__":
+    pygame.init()
+
+    assert len(sys.argv) >= 2
+
+    host = sys.argv[1]
+    port = 6060 if len(sys.argv) < 3 else int(sys.argv[2])
+
+    server = Server(host, port)
+    server.run()
