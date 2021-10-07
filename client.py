@@ -6,6 +6,7 @@ import sys
 from utils import send
 from utils import Subject
 import json
+import config as cfg
 
 WINDOW_SIZE = (400, 800)
 
@@ -25,7 +26,7 @@ class Client:
 
         readable, _, _ = select([self._to_server], [], [self._to_server])
         if readable:
-            self._client_id = int(readable[0].recv(64).decode('utf-8'))
+            self._client_id = int(readable[0].recv(128).decode('utf-8'))
         else:
             raise RuntimeError("Fail to establish connection with server")
 
@@ -65,7 +66,7 @@ class Client:
             # Get update from server about the state of the game
             readable, _, _ = select([self._from_server], [], [self._from_server])
             if readable:
-                message = readable[0].recv(64)
+                message = readable[0].recv(128)
 
                 if not message:
                     continue
@@ -91,13 +92,13 @@ class Client:
             counter = 1
             all_sprites_list = pygame.sprite.Group()
             for subject_id, state in data["state"].items():
-                if int(subject_id) == self._client_id:               
+                if int(data["session_index"]) >= 0 and int(subject_id) == self._client_id:               
                     color = (255, 0, 255) if state else (100, 0, 100)
                     subject = Subject((100, 100), color)
                     all_sprites_list.add(subject)
-                else:
+                elif cfg.SESSION[int(data["session_index"])] > 0:
                     color = (255, 255, 255) if state else (100, 100, 100)
-                    subject = Subject((100, 100 + counter * 200), color)
+                    subject = Subject((100, 100 + counter * 220), color)
                     all_sprites_list.add(subject)
                     counter += 1
 
@@ -106,6 +107,11 @@ class Client:
 
             # Draw sprite group
             all_sprites_list.draw(screen)
+
+            # Display timer
+            font = pygame.font.Font(None, 74)
+            text = font.render(str(data["timer"]), 1, (255, 255, 255))
+            screen.blit(text, (10,10))
 
             # Update client screen
             pygame.display.flip()
