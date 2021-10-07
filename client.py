@@ -38,6 +38,10 @@ class Client:
         control_thread = threading.Thread(target=self._send_input, daemon=True)
         control_thread.start()
 
+        # Create a thread for controlling client from terminal
+        client_control_thread = threading.Thread(target=self._client_control, daemon=True)
+        client_control_thread.start()
+
         # Set up game window
         screen = pygame.display.set_mode(WINDOW_SIZE)
         pygame.display.set_caption("Multi-Subject Finger Tapping Task")
@@ -114,6 +118,7 @@ class Client:
 
         # Wait for threads to finish
         control_thread.join()
+        client_control_thread.join()
 
     def _send_input(self):
         """
@@ -138,6 +143,34 @@ class Client:
         
         # Close sending connection
         self._to_server.close()
+
+    def _client_control(self):
+        """
+        Control client
+        """
+        while self._running:
+            readable, _, _ = select([sys.stdin], [], [], 0.5)
+
+            if not readable:
+                continue
+
+            command = readable[0].readline().strip()
+            
+            if command == "h" or command == "help":
+                print("-----")
+                print("exit: Close the game")
+                print("h or help: List available commands")
+                print("-----")
+            elif command == "exit":
+                self._running = False
+                _, writable, _ = select([], [self._to_server], [self._to_server], 1.0)
+                if writable:
+                    try:
+                        send(writable[0], "CLOSE")
+                    except BrokenPipeError:
+                        print("Server closed")
+            else:
+                print("Unknown command")
 
 
 if __name__ == "__main__":
