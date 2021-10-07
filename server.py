@@ -5,6 +5,7 @@ import pygame
 import sys
 import json
 import threading
+import config as cfg
 
 
 class Server:
@@ -31,6 +32,11 @@ class Server:
         self._currentID = 0
 
         self._state = {}
+
+        self._current_session_index = -1
+        self._paused = True
+        self._counter = 0.0
+        self._counter_target = cfg.SECONDS_COUNT_DOWN
 
         self._thread_lock = threading.Lock()
 
@@ -115,11 +121,55 @@ class Server:
         """
         Update game state then send game state updates to clients
         """
-        clock = pygame.time.Clock() # Control the rate of sending data to clients
+        start_ticks = pygame.time.get_ticks()
+
+        clock = pygame.time.Clock()
         while not self._exit_request:
+            if self._paused:
+                data = {}
+                data["message_type"] = "state"
+                data["state"] = self._state
+                data["session_index"] = self._current_session_index
+                data["timer"] = int(self._counter_target - self._counter + 1.0)
+
+                _, writable, exceptional = select([], self._to_client_connections, self._to_client_connections, 0)
+                for connection in writable:
+                    try:
+                        send(connection, data)
+                    except:
+                        print("Connection closed")
+                        connection.close()
+                        self._to_client_connections.remove(connection)
+                
+                for connection in exceptional:
+                    connection.close()
+                    self._to_client_connections.remove(connection)
+
+                start_ticks = pygame.time.get_ticks()
+                clock.tick(10)
+                continue
+
+            seconds = (pygame.time.get_ticks() - start_ticks)/1000.0
+
+            if self._counter > self._counter_target:
+                self._current_session_index += 1
+
+                if self._current_session_index >= len(cfg.SESSION):
+                    self._exit_request = True
+                    break
+
+                self._counter_target = cfg.SECONDS_PER_SESSION[self._current_session_index]
+                self._counter = 0.0
+                start_ticks = pygame.time.get_ticks()
+
+            elif seconds >= self._counter:
+                self._counter += 1.0
+
             data = {}
             data["message_type"] = "state"
             data["state"] = self._state
+            data["session_index"] = self._current_session_index
+            data["timer"] = int(self._counter_target - self._counter + 1.0)
 
             _, writable, exceptional = select([], self._to_client_connections, self._to_client_connections, 0)
             for connection in writable:
@@ -171,7 +221,7 @@ class Server:
             for connection in readable:
                 client_id = self._from_client_connections[connection]
 
-                message = connection.recv(64)
+                message = connection.recv(128)
 
                 if not message:
                     continue
@@ -206,13 +256,29 @@ class Server:
         Control the server 
         """
         while not self._exit_request:
-            command = input()
-            
+            readable, _, _ = select([sys.stdin], [], [], 0.5)
+
+            if not readable:
+                continue
+
+            command = readable[0].readline().strip()
+
             if command == "h" or command == "help":
                 print("-----")
+                print("unpause: Unpause the game")
+                print("restart: Restart the game")
                 print("exit: Close the server")
                 print("h or help: List available commands")
                 print("-----")
+
+            elif command == "unpause":
+                self._paused = False
+
+            elif command == "restart":
+                self._paused = True
+                self._counter = 0.0
+                self._counter_target = cfg.SECONDS_COUNT_DOWN
+                self._current_session_index = -1
 
             elif command == "exit":
                 self._exit_request = True

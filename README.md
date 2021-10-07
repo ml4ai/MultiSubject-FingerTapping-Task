@@ -21,6 +21,8 @@ where `<host>` is IPv4 address of the server, `<port>` is port reserved for serv
 Available server commands:
 
 - `h` or `help`: List of server commands
+- `unpause`: Unpause the game
+- `restart`: Restart the game
 - `exit`: Close the game on server and clients
 
 DANGER: Do not interrupt the game from the terminal.
