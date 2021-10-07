@@ -1,62 +1,11 @@
-from os import read
 import socket
 from select import select
 from utils import send
 import pygame
 import sys
 import json
-import threading                                                #Libraries import
+import threading
 
-# host = '127.0.0.1'                                                      #LocalHost
-# port = 7978                                                            #Choosing unreserved port
-
-# server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)              #socket initialization
-# server.bind((host, port))                                               #binding host and port to socket
-# server.listen()
-
-# clients = []
-# nicknames = []
-
-# def broadcast(message, clientt):                                                 #broadcast function declaration
-#     for client in clients:
-#         if client == clientt:
-#             continue
-#         else:
-#             client.send(message)
-#     # for client in clients:
-#     #     print(client, type(client))
-#     #     client.send(message)
-
-# def handle(client):                                         
-#     while True:
-#         try:                                                            #recieving valid messages from client
-#             message = client.recv(1024)
-#             broadcast(message, client)
-#         except:                                                         #removing clients
-#             index = clients.index(client)
-#             clients.remove(client)
-#             client.close()
-#             nickname = nicknames[index]
-#             broadcast('{} left!'.format(nickname).encode('ascii'), client)
-#             nicknames.remove(nickname)
-#             break
-
-# def receive():                                                          #accepting multiple clients
-    
-#     while True:
-#         client, address = server.accept()
-#         print("Connected with {}".format(str(address)))       
-#         client.send('NICKNAME'.encode('ascii'))
-#         nickname = client.recv(1024).decode('ascii')
-#         nicknames.append(nickname)
-#         clients.append(client)
-#         print("Nickname is {}".format(nickname))
-#         broadcast("{} joined!".format(nickname).encode('ascii'), client)
-#         client.send('Connected to server!'.encode('ascii'))
-#         thread = threading.Thread(target=handle, args=(client,))
-#         thread.start()
-        
-# receive()
 
 class Server:
     def __init__(self, host: str, port: int):
@@ -185,8 +134,7 @@ class Server:
                 connection.close()
                 self._to_client_connections.remove(connection)
             
-            # Limit loop rate to 120 loops per second
-            clock.tick(120)
+            clock.tick(144)
 
         while self._to_client_connections:
             _, writable, exceptional = select([], self._to_client_connections, self._to_client_connections)
@@ -208,7 +156,7 @@ class Server:
                 connection.close()
                 self._to_client_connections.remove(connection)
             
-            clock.tick(120)
+            clock.tick(144)
 
     def _from_client_commands(self):
         """
@@ -217,13 +165,13 @@ class Server:
         while not self._exit_request:
             readable, _, exceptional = select(self._from_client_connections.keys(), [], self._from_client_connections.keys(), 0.2)
 
-            for id in self._states.keys():
-                self._states[id] = 0
+            for id in self._state.keys():
+                self._state[id] = 0
 
             for connection in readable:
                 client_id = self._from_client_connections[connection]
 
-                message = connection.recv(1024)
+                message = connection.recv(64)
 
                 if not message:
                     continue
@@ -247,8 +195,7 @@ class Server:
                 connection.close()
                 self._thread_lock.acquire()
                 del self._from_client_connections[connection]
-                del self._positions[client_id]
-                del self._paddles[client_id]
+                del self._state[client_id]
                 self._thread_lock.release()
 
         for connection in self._from_client_connections:
