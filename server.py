@@ -184,7 +184,7 @@ class Server:
                 connection.close()
                 self._to_client_connections.remove(connection)
             
-            clock.tick(144)
+            clock.tick(60)
 
         while self._to_client_connections:
             _, writable, exceptional = select([], self._to_client_connections, self._to_client_connections)
@@ -206,7 +206,7 @@ class Server:
                 connection.close()
                 self._to_client_connections.remove(connection)
             
-            clock.tick(144)
+            clock.tick(60)
 
     def _from_client_commands(self):
         """
@@ -221,7 +221,7 @@ class Server:
             for connection in readable:
                 client_id = self._from_client_connections[connection]
 
-                message = connection.recv(128)
+                message = connection.recv(cfg.HEADER)
 
                 if not message:
                     continue
