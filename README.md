@@ -32,10 +32,10 @@ DANGER: Do not interrupt the game from the terminal.
 Use the host IPv4 address and port specified by the server to start the client.
 
 ```python
-python3 src/client.py <host> <port> <TEAM>
+python3 src/client.py <host> <port>
 ```
 
-where `<host>` is IPv4 address of the server, `<port>` is port used by the server, and `<TEAM>` is `LEFT` or `RIGHT`.
+where `<host>` is IPv4 address of the server, and `<port>` is port used by the server.
 
 Available client commands:
 

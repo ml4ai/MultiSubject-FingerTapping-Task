@@ -26,11 +26,13 @@ class Client:
 
         readable, _, _ = select([self._to_server], [], [self._to_server])
         if readable:
-            self._client_id = int(readable[0].recv(128).decode('utf-8'))
+            self._client_id = int(readable[0].recv(cfg.HEADER).decode('utf-8'))
         else:
             raise RuntimeError("Fail to establish connection with server")
 
         self._running = True
+
+        self._tapped = False
 
         print("Connected to server, client ID: " + str(self._client_id))
 
@@ -66,7 +68,7 @@ class Client:
             # Get update from server about the state of the game
             readable, _, _ = select([self._from_server], [], [self._from_server])
             if readable:
-                message = readable[0].recv(128)
+                message = readable[0].recv(cfg.HEADER)
 
                 if not message:
                     continue
@@ -111,7 +113,7 @@ class Client:
             # Display timer
             font = pygame.font.Font(None, 74)
             text = font.render(str(data["timer"]), 1, (255, 255, 255))
-            screen.blit(text, (10,10))
+            screen.blit(text, (10, 10))
 
             # Update client screen
             pygame.display.flip()
@@ -136,7 +138,8 @@ class Client:
             keys = pygame.key.get_pressed()
 
             # Send control commands to server
-            if keys[pygame.K_SPACE]:
+            if keys[pygame.K_SPACE] and not self._tapped:
+                self._tapped = True
                 _, writable, _ = select([], [self._to_server], [self._to_server])
                 if writable:
                     try:
@@ -144,8 +147,10 @@ class Client:
                     except BrokenPipeError:
                         print("Server closed")
                         self._running = False
+            elif not keys[pygame.K_SPACE]:
+                self._tapped = False
 
-            clock.tick(144)
+            clock.tick(60)
         
         # Close sending connection
         self._to_server.close()
