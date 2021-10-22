@@ -16,7 +16,7 @@ Run the server script.
 python3 src/server.py <host> <port>
 ```
 
-where `<host>` is IPv4 address of the server, `<port>` is port reserved for server.
+where `<host>` is IPv4 address of the server, and `<port>` is port reserved for server.
 
 Available server commands:
 
@@ -32,10 +32,10 @@ DANGER: Do not interrupt the game from the terminal.
 Use the host IPv4 address and port specified by the server to start the client.
 
 ```python
-python3 src/client.py <host> <port>
+python3 src/client.py <host> <port> <name>
 ```
 
-where `<host>` is IPv4 address of the server, and `<port>` is port used by the server.
+where `<host>` is IPv4 address of the server, `<port>` is port used by the server, and `<name>` is the name of the client.
 
 Available client commands:
 

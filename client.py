@@ -12,8 +12,8 @@ WINDOW_SIZE = (400, 800)
 
 
 class Client:
-    def __init__(self, host: str, port: int):
-        self._client_id = -1
+    def __init__(self, host: str, port: int, client_name: str):
+        self._client_name = client_name
 
         # Establish two-channel connection to server
         self._from_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -24,17 +24,17 @@ class Client:
         self._to_server.connect((host, port + 1))
         self._to_server.setblocking(False)
 
-        readable, _, _ = select([self._to_server], [], [self._to_server])
-        if readable:
-            self._client_id = int(readable[0].recv(cfg.HEADER).decode('utf-8'))
-        else:
+        _, writable, _ = select([], [self._to_server], [self._to_server])
+        try:
+            send(writable[0], self._client_name)
+        except BrokenPipeError:
             raise RuntimeError("Fail to establish connection with server")
 
         self._running = True
 
         self._tapped = False
 
-        print("Connected to server, client ID: " + str(self._client_id))
+        print("Connected to server, client ID: " + self._client_name)
 
     def run(self):
         # Create a thread for sending client input to server
@@ -93,8 +93,8 @@ class Client:
             # Add sprites to sprite group
             counter = 1
             all_sprites_list = pygame.sprite.Group()
-            for subject_id, state in data["state"].items():
-                if int(data["session_index"]) >= 0 and int(subject_id) == self._client_id:               
+            for name, state in data["state"].items():
+                if int(data["session_index"]) >= 0 and name == self._client_name:
                     color = (255, 0, 255) if state else (100, 0, 100)
                     subject = Subject((100, 100), color)
                     all_sprites_list.add(subject)
@@ -187,10 +187,11 @@ class Client:
 if __name__ == "__main__":
     pygame.init()
 
-    assert len(sys.argv) >= 2
+    assert len(sys.argv) >= 3
 
     host = sys.argv[1]
-    port = 6060 if len(sys.argv) < 3 else int(sys.argv[2])
+    port = int(sys.argv[2])
+    client_name = sys.argv[3]
 
-    client = Client(host, port)
+    client = Client(host, port, client_name)
     client.run()

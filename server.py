@@ -3,6 +3,9 @@ from select import select
 from utils import send
 import pygame
 import sys
+import csv
+from time import time
+import os
 import json
 import threading
 import config as cfg
@@ -29,7 +32,6 @@ class Server:
         self._from_client_request.setblocking(False)
 
         self._exit_request = False
-        self._currentID = 0
 
         self._state = {}
 
@@ -41,6 +43,13 @@ class Server:
         self._thread_lock = threading.Lock()
 
         print(f"[NETWORK] ({self._host}, {self._port})")
+
+        csv_data_path = "./data/"
+        if not os.path.exists(csv_data_path):
+            os.makedirs(csv_data_path)
+
+        self._csv_file = open(csv_data_path + str(int(time())) + ".csv", 'w', newline='')
+        self._csv_writer = csv.writer(self._csv_file, delimiter=';')
 
     def run(self):
         """
@@ -101,21 +110,19 @@ class Server:
                 client_conn, client_addr = readable[0].accept()
                 client_conn.setblocking(False)
 
-                _, writable, _ = select([], [client_conn], [client_conn])
-                try:
-                    send(writable[0], self._currentID)
-                except BrokenPipeError:
+                client_name_read, _, _ = select([client_conn], [], [client_conn])
+                if client_name_read:
+                    client_name = json.loads(client_name_read[0].recv(cfg.HEADER).decode('utf-8'))
+                else:
                     print("Connection closed")
                     continue
 
                 self._thread_lock.acquire()
-                self._from_client_connections[client_conn] = self._currentID
-                self._state[self._currentID] = 0
+                self._from_client_connections[client_conn] = client_name
+                self._state[client_name] = 0
                 self._thread_lock.release()
 
-                print("Receiving commands from [" + str(self._currentID) + ", " + client_addr[0] + ", " + str(client_addr[1]) + ']')
-
-                self._currentID += 1
+                print("Receiving commands from [" + client_name + ", " + client_addr[0] + ", " + str(client_addr[1]) + ']')
     
     def _to_client_update_state(self):
         """
@@ -171,6 +178,9 @@ class Server:
             data["session_index"] = self._current_session_index
             data["timer"] = int(self._counter_target - self._counter + 1.0)
 
+            # Record state of the game
+            self._csv_writer.writerow([time(), json.dumps(data)])
+
             _, writable, exceptional = select([], self._to_client_connections, self._to_client_connections, 0)
             for connection in writable:
                 try:
@@ -215,11 +225,11 @@ class Server:
         while not self._exit_request:
             readable, _, exceptional = select(self._from_client_connections.keys(), [], self._from_client_connections.keys(), 0.2)
 
-            for id in self._state.keys():
-                self._state[id] = 0
+            for name in self._state.keys():
+                self._state[name] = 0
 
             for connection in readable:
-                client_id = self._from_client_connections[connection]
+                client_name = self._from_client_connections[connection]
 
                 message = connection.recv(cfg.HEADER)
 
@@ -233,19 +243,19 @@ class Server:
                     continue
 
                 if command == "TAP":
-                    self._state[client_id] = 1
+                    self._state[client_name] = 1
                 elif command == "CLOSE":
                     connection.close()
                     self._thread_lock.acquire()
                     del self._from_client_connections[connection]
-                    del self._state[client_id]
+                    del self._state[client_name]
                     self._thread_lock.release()
 
             for connection in exceptional:
                 connection.close()
                 self._thread_lock.acquire()
                 del self._from_client_connections[connection]
-                del self._state[client_id]
+                del self._state[client_name]
                 self._thread_lock.release()
 
         for connection in self._from_client_connections:
