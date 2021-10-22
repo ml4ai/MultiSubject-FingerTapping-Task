@@ -29,7 +29,6 @@ class Server:
         self._from_client_request.setblocking(False)
 
         self._exit_request = False
-        self._currentID = 0
 
         self._state = {}
 
@@ -101,21 +100,19 @@ class Server:
                 client_conn, client_addr = readable[0].accept()
                 client_conn.setblocking(False)
 
-                _, writable, _ = select([], [client_conn], [client_conn])
-                try:
-                    send(writable[0], self._currentID)
-                except BrokenPipeError:
+                client_name_read, _, _ = select([client_conn], [], [client_conn])
+                if client_name_read:
+                    client_name = json.loads(client_name_read[0].recv(cfg.HEADER).decode('utf-8'))
+                else:
                     print("Connection closed")
                     continue
 
                 self._thread_lock.acquire()
-                self._from_client_connections[client_conn] = self._currentID
-                self._state[self._currentID] = 0
+                self._from_client_connections[client_conn] = client_name
+                self._state[client_name] = 0
                 self._thread_lock.release()
 
-                print("Receiving commands from [" + str(self._currentID) + ", " + client_addr[0] + ", " + str(client_addr[1]) + ']')
-
-                self._currentID += 1
+                print("Receiving commands from [" + client_name + ", " + client_addr[0] + ", " + str(client_addr[1]) + ']')
     
     def _to_client_update_state(self):
         """
@@ -215,11 +212,11 @@ class Server:
         while not self._exit_request:
             readable, _, exceptional = select(self._from_client_connections.keys(), [], self._from_client_connections.keys(), 0.2)
 
-            for id in self._state.keys():
-                self._state[id] = 0
+            for name in self._state.keys():
+                self._state[name] = 0
 
             for connection in readable:
-                client_id = self._from_client_connections[connection]
+                client_name = self._from_client_connections[connection]
 
                 message = connection.recv(cfg.HEADER)
 
@@ -233,19 +230,19 @@ class Server:
                     continue
 
                 if command == "TAP":
-                    self._state[client_id] = 1
+                    self._state[client_name] = 1
                 elif command == "CLOSE":
                     connection.close()
                     self._thread_lock.acquire()
                     del self._from_client_connections[connection]
-                    del self._state[client_id]
+                    del self._state[client_name]
                     self._thread_lock.release()
 
             for connection in exceptional:
                 connection.close()
                 self._thread_lock.acquire()
                 del self._from_client_connections[connection]
-                del self._state[client_id]
+                del self._state[client_name]
                 self._thread_lock.release()
 
         for connection in self._from_client_connections:
