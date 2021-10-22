@@ -3,6 +3,9 @@ from select import select
 from utils import send
 import pygame
 import sys
+import csv
+from time import time
+import os
 import json
 import threading
 import config as cfg
@@ -40,6 +43,13 @@ class Server:
         self._thread_lock = threading.Lock()
 
         print(f"[NETWORK] ({self._host}, {self._port})")
+
+        csv_data_path = "./data/"
+        if not os.path.exists(csv_data_path):
+            os.makedirs(csv_data_path)
+
+        self._csv_file = open(csv_data_path + str(int(time())) + ".csv", 'w', newline='')
+        self._csv_writer = csv.writer(self._csv_file, delimiter=';')
 
     def run(self):
         """
@@ -167,6 +177,9 @@ class Server:
             data["state"] = self._state
             data["session_index"] = self._current_session_index
             data["timer"] = int(self._counter_target - self._counter + 1.0)
+
+            # Record state of the game
+            self._csv_writer.writerow([time(), json.dumps(data)])
 
             _, writable, exceptional = select([], self._to_client_connections, self._to_client_connections, 0)
             for connection in writable:
