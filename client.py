@@ -94,11 +94,13 @@ class Client:
             counter = 1
             all_sprites_list = pygame.sprite.Group()
             for name, state in data["state"].items():
-                if int(data["session_index"]) >= 0 and name == self._client_name:
+                # Always show client as pink
+                if name == self._client_name:
                     color = (255, 0, 255) if state else (100, 0, 100)
                     subject = Subject((100, 100), color)
                     all_sprites_list.add(subject)
-                elif cfg.SESSION[int(data["session_index"])] > 0:
+                # Show other players if the count down is happening or during synchronization period
+                elif int(data["session_index"]) < 0 or cfg.SESSION[int(data["session_index"])] > 0:
                     color = (255, 255, 255) if state else (100, 100, 100)
                     subject = Subject((100, 100 + counter * 220), color)
                     all_sprites_list.add(subject)
